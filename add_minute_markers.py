@@ -1,4 +1,5 @@
-"""Automatically insert minute markers in my interview notes during the interview.
+"""Automatically insert minute markers from listening in my interview notes
+during the interview.
 
 Prior attempts:
 - original inserting attempt was with pyautogui.typewrite() but this
@@ -8,87 +9,66 @@ Prior attempts:
 - original timing attempt was with time.sleep() in a while loop but promises
   seemed rough.
 
-Reference:
 
-After my PyAutoGui struggles I attempted Automator, and successfully found how
-to paste, but couldn't identify how to run from terminal. Then realized I could
-run an AppleScript.
-- g[automater paste]:
-=> https://stackoverflow.com/questions/25747253/applescript-to-paste-clipboard
-- then g[run automater quick action from terminal]
-  and g[run appscript from terminal]:
-=> https://support.apple.com/lt-lt/guide/terminal/trml1003/mac
-
-Then for timing:
-- g[print on exactly on the iminute python]:
-=> https://stackoverflow.com/questions/19645720/trigger-a-python-function-exactly-on-the-minute
-
-
-I may need to learn to have it trigger on the minute but on the second on which it was triggered.
-OK. I think it is with the current second.
-
-g[sched.add_job(fn, trigger=CronTrigger(second=00))]
-=> https://apscheduler.readthedocs.io/en/3.x/modules/triggers/cron.html
-
-Then I played w/ this in Python:
->>> from datetime import datetime
->>> help(datetime.now())
-
->>> datetime.now().second
-32
-
-
-WEIRD FAIL STATE: the script provides a Space while the AppleScript has command
-down. That opens Finder and then various window switching as I frantically try
-to return to the terminal to end.
-
-I could simply not test it that way, but I is also possible that I'd press a
-space at the minute marker as well, throwing off an interview.
-
-I realized this paradigm is perhaps overwrought and I can instead write a
-listener that reconstructs the notes, not intervening directly in the creation.
 
 """
 
 # Imports
-import sys
-import subprocess
 from datetime import datetime
-
-import pyperclip
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 # Body
-MINUTE = 0
-TESTING = False
+TEMP_NOTES = "temp_notes.md"
+LIVE_NOTES = "/Users/dsg/Desktop/nidicolous/testing_transcript.md"
+NOTES_BY_MINUTE = []
 
 
 def set_marker_sched(start_second):
+    """Establish schedule with the second the script was initiated."""
     sched = BlockingScheduler()
-    # Execute fn() at the start of each minute.
-    sched.add_job(fn, trigger=CronTrigger(second=start_second))
+    # Execute listener_fn() every minute on the start_second.
+    sched.add_job(listener_fn, trigger=CronTrigger(second=start_second))
     sched.start()
 
 
-def fn():
-    global MINUTE
-    pyperclip.copy("\n# {}:00\n\n".format(MINUTE))
-    subprocess.call(("osascript", "paste.scpt"))
-    if TESTING:
-        pyperclip.copy(str(datetime.now()))
-        subprocess.call(("osascript", "paste.scpt"))
-    MINUTE += 1
+def update_temp_notes():
+    """Update TEMP_NOTES file from NOTES_MINUTES."""
+    with open(TEMP_NOTES, "r") as fin:
+        temp_text = fin.read()
+    # base text is pre-interview
+    temp_text += NOTES_BY_MINUTE[-1]
+    temp_text += "\n\n# {}:00\n\n".format(len(NOTES_BY_MINUTE)-1)
+    with open(TEMP_NOTES, "w") as fout:
+        fout.write(temp_text)
 
 
-def main(testing=False):
-    if (sys.argv[-1] == "-t") or (testing is True):
-        print("Testing add_minute_markers...")
-        global TESTING
-        TESTING = True
+def listener_fn():
+    """Copy all text from notes up to exact minute.
+
+    - reads NOTES_FILE
+    - updates NOTES_BY_MINUTE list
+    - calls update_temp_notes
+    """
+    with open(LIVE_NOTES, "r") as fin:
+        text = fin.read()
+    # append only the text not already logged
+    if len(NOTES_BY_MINUTE) > 1:
+        NOTES_BY_MINUTE.append(text.strip(NOTES_BY_MINUTE[-1]))
+    else:
+        NOTES_BY_MINUTE.append(text)
+    update_temp_notes()
+
+
+def main():
+    """Prints initializing statement, starts schedule, runs base listener."""
     print("Running add_minute_markers...")
+    print("Listening to:", LIVE_NOTES)
+    print("TEMP_NOTES:\n", TEMP_NOTES)
     set_marker_sched(datetime.now().second)
+    listener_fn()
+
 
 if __name__ == "__main__":
     main()
